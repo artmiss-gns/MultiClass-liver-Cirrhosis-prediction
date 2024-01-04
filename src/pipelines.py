@@ -62,7 +62,7 @@ def pre_process1(data, inplace=False):
 
     return data  # Return the modified DataFrame
 
-def imputation(data, inplace=False):
+def missing_value_imputation(data, inplace=False):
     if not inplace :
         data = data.copy()
     # drop features that contain little Nan values
@@ -86,7 +86,7 @@ def imputation(data, inplace=False):
     data = data.drop(indexes) 
     # impute by the mean 
     data.fillna(data.select_dtypes(["int", "float"]).mean(), inplace=True)
-    data.reset_index(inplace=True)
+    data.reset_index(inplace=True, drop=True)
 
     return data
 
@@ -200,7 +200,7 @@ basic_pipeline = Pipeline(
 
 pipeline = Pipeline(
     [
-        ("imputation_preprocess", FunctionTransformer(func=imputation, validate=False)),
+        ("missing_value_preprocess", FunctionTransformer(func=missing_value_imputation, validate=False)),
         ("outlier_removal_preprocess", FunctionTransformer(func=outlier_removal, validate=False)),
 
     ]
