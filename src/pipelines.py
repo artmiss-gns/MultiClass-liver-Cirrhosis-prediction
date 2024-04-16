@@ -20,7 +20,7 @@ from sklearn.preprocessing import FunctionTransformer
 
 
 # Function to preprocess the data
-def pre_process1(data, inplace=False):
+def basic_preprocess(data, inplace=False):
     if not inplace :
         data = data.copy()
 
@@ -90,31 +90,28 @@ def missing_value_imputation(data, inplace=False):
 
     return data
 
-def encode_data(data, inplace=False):
+def outlier_removal_quantile(data, inplace=False) :
     if not inplace :
         data = data.copy()
-        
-    # encoded_frame = pd.DataFrame(
-    #     OneHotEncoder().fit_transform(data[["Edema"]]).toarray(),
-    #     columns=["no_Edema_no_diuretic", "Edema_no_diuretic", "Edema_diuretic"]
-    # )
-    # data = pd.concat(
-    #     [data, encoded_frame],
-    #     axis=1,
-    # )
-    # data.drop(columns=["Edema"], inplace=True)
+    outlier_list = ["Bilirubin", "Cholesterol", "Albumin", "Copper", "Alk_Phos", "SGOT", "Tryglicerides", "Platelets", "Prothrombin"]
+    def quantile_outlier_removal(column: pd.Series, q1=0.25, q2=0.75) :
+        Q1 = column.quantile(q1)
+        Q3 = column.quantile(q2)
+        IQR = Q3 - Q1
+        filtered_column = column[
+            (column >= (Q1 - 1.5*IQR)) & (column <= (Q3 + 1.5*IQR))
+        ] # changed > to >= , and > to >=
+        # in this case, columns like 'adults' won't have any problem
+        return filtered_column
 
+    data.loc[:, outlier_list] = data[outlier_list].apply(
+        lambda feature: quantile_outlier_removal(feature),
+    ).dropna()
+    data.dropna(inplace=True)
 
+    return data
 
-    # # fixing Status dtype using TargetEncoding
-    if "Status" in data.columns :
-        encoder = LabelEncoder()
-        data["Status"] = encoder.fit_transform(data["Status"])
-
-
-    return data  # Return the modified DataFrame
-
-def outlier_removal(data, inplace=False) : 
+def outlier_removal_IsolationForest(data, inplace=False) : 
     if not inplace :
         data = data.copy()
     # IsolationForest
@@ -139,23 +136,36 @@ def outlier_removal(data, inplace=False) :
 
     return data.iloc[list(chosen_indexes), :]
 
-def scale(data, inplace=False) :
-    # scale the data using z-score scaler
-    scaler = StandardScaler()
-    scaled = scaler.fit_transform(
-        data[
-            [
-                "Bilirubin", "Cholesterol", "Albumin", "Copper", "Alk_Phos", "SGOT", "Tryglicerides", "Platelets", "Prothrombin",
-                "Age", "N_years",
-            ]
-        ]
-    )
-    data[
-        [
-            "Bilirubin", "Cholesterol", "Albumin", "Copper", "Alk_Phos", "SGOT", "Tryglicerides", "Platelets", "Prothrombin",
-            "Age", "N_years"
-        ]
-    ] = scaled
+def fix_imbalanced_SMOTE(data, inplace=False) :
+    if not inplace :
+        data = data.copy()
+    # using SMOTE for `Stage` and `Spiders` feature
+    categorical_features = ["is_male", "Hepatomegaly", "Spiders", "Edema", "Stage", "took_drug"]
+    smote_nc = SMOTENC(categorical_features=categorical_features, random_state=9090)
+    # smote_nc = SMOTE(random_state=9090)
+    X, y = smote_nc.fit_resample(data, data["Status"]) # ? should i drop `Status` ? does it cause data-leakage
+
+    return X
+
+def duplicate_removal(data, inplace=False) :
+    if not inplace :
+        data = data.copy()
+    # Detect duplicate rows
+    duplicates = data.duplicated()
+    if duplicates.sum() > 0:
+        data.drop_duplicates(inplace=True)
+
+    return data
+
+def encoding(data, inplace=False) :
+    # we have done some of the encoding in `basic_pipeline`, only `Edema` is left  
+    # for the time being, let's use `OneHotEncoding`
+    if not inplace :
+        data = data.copy()
+    encoder = OneHotEncoder() 
+    new_values = encoder.fit_transform(data[["Edema"]])
+    data[encoder.get_feature_names_out()] = new_values.toarray().astype('int8')
+    data.drop(columns=["Edema"], inplace=True)
 
     return data
 
@@ -190,39 +200,52 @@ def beta_preprocess(data, inplace=False) :
 
     return data  # Return the modified DataFrame
 
-# Column Transformer to apply the pre_process function to the entire DataFrame
+def scale(data, inplace=False) :
+    # scale the data using z-score scaler
+    scaler = StandardScaler()
+    scaled = scaler.fit_transform(
+        data[
+            [
+                "Bilirubin", "Cholesterol", "Albumin", "Copper", "Alk_Phos", "SGOT", "Tryglicerides", "Platelets", "Prothrombin",
+                "Age", "N_years",
+            ]
+        ]
+    )
+    data[
+        [
+            "Bilirubin", "Cholesterol", "Albumin", "Copper", "Alk_Phos", "SGOT", "Tryglicerides", "Platelets", "Prothrombin",
+            "Age", "N_years"
+        ]
+    ] = scaled
+
+    return data
+
 
 basic_pipeline = Pipeline(
     [
-        ("EDA_preprocessing", FunctionTransformer(func=pre_process1, validate=False)),
+        ("EDA_preprocessing", FunctionTransformer(func=basic_preprocess, validate=False)),
     ]
 )
 
-pipeline = Pipeline(
+advanced_pipeline = Pipeline(
     [
         ("missing_value_preprocess", FunctionTransformer(func=missing_value_imputation, validate=False)),
-        ("outlier_removal_preprocess", FunctionTransformer(func=outlier_removal, validate=False)),
-
-    ]
-)
-
-train_pipeline = Pipeline(
-    # last steps to do before train the model
-    [
-        ("encode", FunctionTransformer(func=encode_data, validate=False)),
-
+        ("outlier_removal_preprocess", FunctionTransformer(func=outlier_removal_quantile, validate=False)),
+        ("imbalanced_fix_preprocess", FunctionTransformer(func=fix_imbalanced_SMOTE, validate=False)),
+        ("duplicate_removal_preprocess", FunctionTransformer(func=duplicate_removal, validate=False)),
+        ("encoding_preprocess", FunctionTransformer(func=encoding, validate=False)),
     ]
 )
 
 test_date_pipeline = Pipeline(
     [
-        ("EDA_preprocessing", FunctionTransformer(func=pre_process1, validate=False)),
+        ("EDA_preprocessing", FunctionTransformer(func=basic_preprocess, validate=False)),
     ]
 )
 
 beta_pipeline = Pipeline(
     [
-        ("EDA_preprocessing", FunctionTransformer(func=pre_process1, validate=False)),
+        ("EDA_preprocessing", FunctionTransformer(func=basic_preprocess, validate=False)),
         # ("model_preprocessing", FunctionTransformer(func=pre_process2, validate=False)),
         ("beta_preprocess", FunctionTransformer(func=beta_preprocess, validate=False)),
     ]
