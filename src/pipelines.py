@@ -140,7 +140,7 @@ def fix_imbalanced_SMOTE(data, inplace=False) :
     if not inplace :
         data = data.copy()
     # using SMOTE for `Stage` and `Spiders` feature
-    categorical_features = ["is_male", "Hepatomegaly", "Spiders", "Edema", "Stage", "took_drug"]
+    categorical_features = ["is_male", "Hepatomegaly",  "Stage", "took_drug"] # "Spiders", "Edema",
     smote_nc = SMOTENC(categorical_features=categorical_features, random_state=9090)
     # smote_nc = SMOTE(random_state=9090)
     X, y = smote_nc.fit_resample(data, data["Status"]) # ? should i drop `Status` ? does it cause data-leakage
